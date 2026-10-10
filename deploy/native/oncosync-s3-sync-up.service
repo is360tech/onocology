@@ -1,0 +1,10 @@
+[Unit]
+Description=OncoSync S3 sync-up (one-shot; no-ops if BC_S3_BUCKET is unset)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/oncosync
+EnvironmentFile=-%h/.config/oncosync/env
+Environment=BC_HOME=%h/oncosync
+ExecStart=/bin/bash %h/oncosync/deploy/scripts/s3_sync_up.sh
+# USER unit — see oncosync-api.service's note. Install to ~/.config/systemd/user/.

@@ -1,0 +1,76 @@
+name: oncosync-staging
+# Internal research/QA + OncoSync staging (per the deployment-scope decision — see README_DEPLOY.md).
+# NOT a production-clinical deployment. Single host, docker compose.
+
+x-s3-env: &s3-env
+  BC_S3_BUCKET: ${BC_S3_BUCKET:-}
+  BC_S3_PREFIX: ${BC_S3_PREFIX:-is360-breast-poc}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+
+services:
+  # One-shot: pulls any S3 state down into the shared workspace volume before anything else starts.
+  # Safe to run with no S3 configured — the script no-ops if BC_S3_BUCKET is unset.
+  s3-sync-down:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.pipeline
+    image: oncosync-pipeline:local
+    environment: *s3-env
+    volumes:
+      - workspace:/app/workspace
+    entrypoint: ["/bin/bash", "/app/deploy-scripts/s3_sync_down.sh"]
+
+  # The bc.py pipeline, run on demand (not a long-lived service): `docker compose run pipeline experiments --partition DEV ...`
+  pipeline:
+    image: oncosync-pipeline:local
+    environment: *s3-env
+    volumes:
+      - workspace:/app/workspace
+    depends_on:
+      s3-sync-down:
+        condition: service_completed_successfully
+    profiles: ["tools"]   # only runs via `docker compose run pipeline <args>`, never `up`
+
+  # One-shot: pushes generated/durable outputs (results, reports, the governance ledger) back to S3
+  # after a pipeline run. Run explicitly: `docker compose run s3-sync-up`.
+  s3-sync-up:
+    image: oncosync-pipeline:local
+    environment: *s3-env
+    volumes:
+      - workspace:/app/workspace
+    entrypoint: ["/bin/bash", "/app/deploy-scripts/s3_sync_up.sh"]
+    profiles: ["tools"]
+
+  # Read-only OncoSync staging API: serves the Case Review / QA Dashboard canvas from whatever is
+  # currently in the shared workspace volume.
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: oncosync-api:local
+    environment: *s3-env
+    volumes:
+      - workspace:/app/workspace
+    ports:
+      - "8000:8000"
+    depends_on:
+      s3-sync-down:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Periodic S3 push-back while the API is up, so the governance ledger and any DEV/QA runs done via
+  # `docker compose run pipeline` stay durable without a manual sync-up step every time.
+  s3-sync-up-cron:
+    image: oncosync-pipeline:local
+    environment: *s3-env
+    volumes:
+      - workspace:/app/workspace
+    entrypoint: ["/bin/sh", "-c", "while true; do /bin/bash /app/deploy-scripts/s3_sync_up.sh; sleep 900; done"]
+    restart: unless-stopped
+
+volumes:
+  workspace:
+    # Named volume, not a bind mount: keeps the real MIAS-derived feature/model artifacts out of the
+    # repo working tree. S3 (when configured) is the durable copy; this volume is a local cache.

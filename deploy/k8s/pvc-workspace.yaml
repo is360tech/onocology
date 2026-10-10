@@ -1,0 +1,14 @@
+# Local cache for the workspace (features, oof posteriors, reports, ledger) between S3 syncs.
+# ReadWriteOnce is fine for a single api Deployment replica; if you scale api beyond 1 replica,
+# switch to a ReadWriteMany storage class (e.g. EFS on EKS) or move the api to read S3 directly
+# instead of a shared PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oncosync-workspace
+  labels: { app: oncosync }
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi

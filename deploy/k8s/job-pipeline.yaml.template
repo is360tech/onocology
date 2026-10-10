@@ -1,0 +1,38 @@
+# Template for an on-demand pipeline run (e.g. a DEV experiment sweep for QA). Copy, fill in `args`,
+# and `kubectl apply -f` — or generate ad hoc with `kubectl create job --from=cronjob/... ` style tooling.
+# Not applied automatically; this is the k8s equivalent of `docker compose run pipeline <args>`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: oncosync-pipeline-run-
+  labels: { app: oncosync, component: pipeline }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: s3-sync-down
+          image: REGISTRY/oncosync-pipeline:TAG
+          command: ["/bin/bash", "/app/deploy-scripts/s3_sync_down.sh"]
+          envFrom:
+            - configMapRef: { name: oncosync-config }
+            - secretRef: { name: oncosync-s3-creds, optional: true }
+          volumeMounts:
+            - { name: workspace, mountPath: /app/workspace }
+      containers:
+        - name: pipeline
+          image: REGISTRY/oncosync-pipeline:TAG
+          # Example: a quick DEV smoke test, same args used to validate the select_epsilon() merge.
+          args: ["experiments", "--partition", "DEV", "--repeats", "1", "--boot", "100"]
+          envFrom:
+            - configMapRef: { name: oncosync-config }
+            - secretRef: { name: oncosync-s3-creds, optional: true }
+          volumeMounts:
+            - { name: workspace, mountPath: /app/workspace }
+      volumes:
+        - name: workspace
+          persistentVolumeClaim: { claimName: oncosync-workspace }

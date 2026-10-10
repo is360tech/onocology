@@ -1,0 +1,29 @@
+# OncoSync staging API — thin, read-only, lightweight (no sklearn/scipy/skimage; it never trains or
+# scores, only reads already-written pipeline outputs). Vendors config.py directly from the real
+# pipeline source so paths/TASKS can never drift out of sync with the pipeline image.
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends awscli ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 apiuser
+WORKDIR /app
+
+COPY deploy/requirements-api.txt /app/requirements-api.txt
+RUN pip install --no-cache-dir -r /app/requirements-api.txt
+
+# Only config.py from the real pipeline (no heavy ML deps needed for path/TASKS lookups).
+RUN mkdir -p /app/code/src
+COPY code/src/config.py /app/code/src/config.py
+COPY deploy/api/ /app/api/
+COPY deploy/scripts/ /app/deploy-scripts/
+
+ENV BC_HOME=/app
+ENV PYTHONUNBUFFERED=1
+RUN mkdir -p /app/workspace && chown -R apiuser:apiuser /app
+USER apiuser
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+CMD ["uvicorn", "main:app", "--app-dir", "/app/api", "--host", "0.0.0.0", "--port", "8000"]

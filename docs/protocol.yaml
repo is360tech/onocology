@@ -1,0 +1,24 @@
+# Pre-specified analysis protocol (freeze BEFORE the first run on the manuscript partition: python bc.py protocol)
+study: MIAS mini database, IS360 breast imaging PoC
+dataset_id: ds_brca_mias_001
+partitions: {rule: "patient-level, seeded, stratified by worst class; DEV ~30%, MS ~70%", seed: 20260921}
+exclusions: {level: image, rule: "outcome-blind QC failure (breast area outside 8-75% of frame, or median intensity outside 20-235)"}
+primary_endpoint: {task: severity_roi, variant: P4, model: slda, metric: AUC (malignant = positive), interval: "patient-level bootstrap 95% CI"}
+secondary_tasks: [lesion_vs_normal_roi, abnormal_img, density_img]
+preprocessing_variants: [P0, P1, P2, P3, P4]        # cumulative ablation ladder; primary = P4
+models: [slda, logreg, svm, rf]                       # primary = slda (NeuroSync, Tikhonov-regularised LDA)
+validation: {outer: "5-fold patient-grouped stratified, 10 repeats", inner: "3-fold patient-grouped for lambda / C", seeds: "42 + repeat index"}
+comparisons: ["variant vs P0 for the primary model (paired patient-level bootstrap of delta AUC)", "each baseline model vs slda at P4"]
+uncertainty:
+  paz_ratio_limit: 0.15
+  definition: "per-task PAZ gate, selected empirically on DEV out-of-fold predictions via select_epsilon() (grid search maximising accuracy among confident cases, subject to >=50% coverage); margin = top-1 minus top-2 posterior margin below epsilon is ambiguous, entropy = normalized Shannon entropy above epsilon is ambiguous"
+  per_task:
+    severity_roi: {method: margin, epsilon: 0.15, selected_on: DEV, dev_accuracy_confident: 0.450, dev_coverage: 0.541}
+    lesion_vs_normal_roi: {method: margin, epsilon: 0.20, selected_on: DEV, dev_accuracy_confident: 0.796, dev_coverage: 0.730}
+    abnormal_img: {method: margin, epsilon: 0.05, selected_on: DEV, dev_accuracy_confident: 0.548, dev_coverage: 0.857}
+    density_img: {method: entropy, epsilon: 0.90, selected_on: DEV, dev_accuracy_confident: 0.806, dev_coverage: 0.684}
+  source: "exp_20261009_002_DEV (repeats=10, boot=500), full instrumented grid logged in epsilon_sweep_full.json/.csv"
+controls: ["label permutation control must be near chance", "coordinate-alignment check", "no patient in both train and test (asserted in code)"]
+features_excluded: ["lesion radius / patch side from the annotation"]
+reporting: [CLAIM, TRIPOD+AI, STARD]
+multiplicity: "one primary endpoint; all other results are secondary and reported with intervals, without claims of significance"

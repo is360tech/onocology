@@ -1,0 +1,2 @@
+v1.0  Phase 1 desktop package: ingest, QC, partition freeze (Option A), preprocessing ladder P0-P4, features, nested grouped CV, PAZ, report, governance ledger.
+(record every local change: date, who, what, why. Changes after the partition/protocol freeze must be justified in writing.)

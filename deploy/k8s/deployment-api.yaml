@@ -1,0 +1,63 @@
+# OncoSync staging API. Single replica by default (see pvc-workspace.yaml note on ReadWriteOnce).
+# Image references assume you've pushed oncosync-api:<tag> and oncosync-pipeline:<tag> to a registry
+# this cluster can pull from — replace REGISTRY/oncosync-*:TAG before applying.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oncosync-api
+  labels: { app: oncosync, component: api }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: oncosync, component: api }
+  template:
+    metadata:
+      labels: { app: oncosync, component: api }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: s3-sync-down
+          image: REGISTRY/oncosync-pipeline:TAG
+          command: ["/bin/bash", "/app/deploy-scripts/s3_sync_down.sh"]
+          envFrom:
+            - configMapRef: { name: oncosync-config }
+            - secretRef: { name: oncosync-s3-creds, optional: true }
+          volumeMounts:
+            - { name: workspace, mountPath: /app/workspace }
+      containers:
+        - name: api
+          image: REGISTRY/oncosync-api:TAG
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: oncosync-config }
+            - secretRef: { name: oncosync-s3-creds, optional: true }
+          volumeMounts:
+            - { name: workspace, mountPath: /app/workspace }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - name: workspace
+          persistentVolumeClaim: { claimName: oncosync-workspace }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oncosync-api
+  labels: { app: oncosync, component: api }
+spec:
+  selector: { app: oncosync, component: api }
+  ports:
+    - { port: 80, targetPort: 8000 }
+  type: ClusterIP

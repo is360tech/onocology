@@ -1,0 +1,20 @@
+[Unit]
+Description=OncoSync staging API (internal QA / staging only — see deploy/README_DEPLOY.md)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/oncosync
+# Secrets (BC_S3_BUCKET, AWS keys) live in ~/.config/oncosync/env, mode 600, NOT in this unit or git.
+# The leading "-" means systemd tolerates the file not existing yet (local-only, no S3 configured).
+EnvironmentFile=-%h/.config/oncosync/env
+Environment=BC_HOME=%h/oncosync
+ExecStart=%h/oncosync/.venv-api/bin/uvicorn main:app --app-dir %h/oncosync/deploy/api --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+# This is a USER unit (systemctl --user ...), deliberately — the whole push-to-deploy pipeline runs
+# as one unprivileged service account (e.g. "oncosync"), no root/sudo needed after the one-time
+# server_setup.sh. Install to ~/.config/systemd/user/, not /etc/systemd/system/.

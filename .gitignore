@@ -1,0 +1,14 @@
+# Generated/data — durable copy lives in S3 (see deploy/README_DEPLOY.md), not in git.
+workspace/
+# Raw dataset archive (312M) and any local credentials/keys — never belongs in git history.
+inbox/
+secure/
+
+# Python
+__pycache__/
+*.pyc
+.venv-*/
+*.bak_pre_patch_merge
+
+# Editors / OS
+.DS_Store

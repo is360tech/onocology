@@ -1,0 +1,48 @@
+# IS360 Breast PoC — research/QA pipeline image (bc.py).
+# Scope: internal research & QA runs and staging data prep for OncoSync. NOT a regulatory or
+# clinical-deployment artifact — see deploy/README_DEPLOY.md.
+#
+# Versions pinned to match the provenance record already in every experiment's config.json
+# (provenance.py), so a container run reproduces the same software stack as the validated runs.
+FROM python:3.13-slim AS base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libopenblas-dev \
+        awscli \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+        numpy==2.5.3 \
+        scipy==1.18.1 \
+        pandas==3.0.5 \
+        scikit-learn==1.9.1 \
+        scikit-image==0.26.0 \
+        pillow==12.3.0 \
+        joblib==1.6.0 \
+        matplotlib==3.11.2 \
+        pyyaml==6.0.2
+
+# Non-root: the pipeline never needs root, and the governance ledger/audit trail is more credible
+# coming from a container that couldn't have tampered with its own permissions.
+RUN useradd -m -u 1000 bcuser
+WORKDIR /app
+COPY --chown=bcuser:bcuser code/ /app/code/
+COPY --chown=bcuser:bcuser docs/ /app/docs/
+COPY --chown=bcuser:bcuser deploy/scripts/ /app/deploy-scripts/
+# BC_HOME=/app so config.py's workspace (WS=$BC_HOME/workspace) and protocol freeze
+# (s4_experiments.py reads $BC_HOME/docs/protocol.yaml) both resolve inside this one root,
+# independent of where config.py itself happens to sit in the image.
+ENV BC_HOME=/app
+ENV PYTHONUNBUFFERED=1
+RUN mkdir -p /app/workspace && chown bcuser:bcuser /app/workspace
+USER bcuser
+
+# Healthcheck mirrors the session's own validation habit: don't trust that the environment is fine,
+# run bc.py check and look at its exit behavior (it never raises a nonzero exit on WARN, only on FAIL-
+# adjacent import errors, so this catches a broken image, not the two pre-existing optional warnings).
+HEALTHCHECK --interval=5m --timeout=30s CMD python3 /app/code/bc.py check || exit 1
+
+ENTRYPOINT ["python3", "/app/code/bc.py"]
+CMD ["check"]

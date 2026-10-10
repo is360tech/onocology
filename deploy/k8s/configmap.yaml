@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oncosync-config
+  labels: { app: oncosync }
+data:
+  BC_S3_PREFIX: "is360-breast-poc"
+  AWS_DEFAULT_REGION: "ap-south-1"

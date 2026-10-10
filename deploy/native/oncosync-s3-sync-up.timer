@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OncoSync S3 sync-up every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Unit=oncosync-s3-sync-up.service
+
+[Install]
+WantedBy=timers.target
+# USER unit — see oncosync-api.service's note. Install to ~/.config/systemd/user/.

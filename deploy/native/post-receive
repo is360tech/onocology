@@ -1,0 +1,33 @@
+#!/bin/bash
+# Installed by server_setup.sh into <bare-repo>/hooks/post-receive, owned by and pushed to as the
+# unprivileged deploy account (e.g. "oncosync"). Fires on every `git push`: checks the new commit out
+# into the live work tree, rebuilds the two venvs (idempotent), restarts the API. No Docker, no image
+# registry, no subscription, and — because the API runs as a `systemctl --user` unit under this same
+# account — no root/sudo needed here at all after the one-time server_setup.sh.
+set -euo pipefail
+WORK_TREE="${ONCOSYNC_WORK_TREE:-$HOME/oncosync}"
+GIT_DIR="$(git rev-parse --git-dir)"
+
+# `systemctl --user` needs the user's runtime dir / session bus, which a non-interactive git-push
+# session (invoked over ssh, no login shell) does not set up on its own. server_setup.sh runs
+# `loginctl enable-linger` for this account so the runtime dir exists even with no active login —
+# this just has to point at it.
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
+while read -r oldrev newrev ref; do
+  if [ "$ref" = "refs/heads/main" ]; then
+    echo "post-receive: checking out $newrev into $WORK_TREE"
+    mkdir -p "$WORK_TREE"
+    git --work-tree="$WORK_TREE" --git-dir="$GIT_DIR" checkout -f main
+
+    echo "post-receive: rebuilding venvs"
+    bash "$WORK_TREE/deploy/native/install.sh"
+
+    echo "post-receive: restarting oncosync-api (user unit)"
+    systemctl --user restart oncosync-api
+
+    echo "post-receive: deployed $(git --git-dir="$GIT_DIR" rev-parse --short "$newrev")"
+  else
+    echo "post-receive: ignoring push to $ref (only main deploys)"
+  fi
+done

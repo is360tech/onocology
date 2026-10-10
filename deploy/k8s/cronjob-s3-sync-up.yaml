@@ -1,0 +1,31 @@
+# Periodic push-back of generated outputs (results, reports, the governance ledger) to S3, same role
+# as the s3-sync-up-cron service in docker-compose.yml. Runs against the same PVC the api Deployment
+# uses, so anything a pipeline Job writes into the shared workspace becomes durable within 15 minutes.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: oncosync-s3-sync-up
+  labels: { app: oncosync, component: s3-sync }
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          restartPolicy: OnFailure
+          containers:
+            - name: s3-sync-up
+              image: REGISTRY/oncosync-pipeline:TAG
+              command: ["/bin/bash", "/app/deploy-scripts/s3_sync_up.sh"]
+              envFrom:
+                - configMapRef: { name: oncosync-config }
+                - secretRef: { name: oncosync-s3-creds, optional: true }
+              volumeMounts:
+                - { name: workspace, mountPath: /app/workspace }
+          volumes:
+            - name: workspace
+              persistentVolumeClaim: { claimName: oncosync-workspace }
